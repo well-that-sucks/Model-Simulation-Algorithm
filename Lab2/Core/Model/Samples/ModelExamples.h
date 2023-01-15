@@ -15,5 +15,8 @@ namespace Model
 		// Lab 3 models
 		static void RunModelCarBank(double SimulationTime);
 		static void RunModelHospital(double SimulationTime);
+
+		// Coursework
+		static void RunModelCoursework(double SimulationTime);
 	};
 }

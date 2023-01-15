@@ -24,27 +24,29 @@ void Model::Nodes::NodeProcessor::InAction(std::shared_ptr<Tasks::TaskBase> InTa
 {
 	NodeBase::InAction(InTask);
 
-	// If processor has any idling process...
-	if (std::optional<std::reference_wrapper<SubProcess>> IdlingSubprocess = GetIdlingSubprocess())
+	if (CanTaskEnter(InTask))
 	{
-		std::shared_ptr<Tasks::TaskBase>& CurrentTask = IdlingSubprocess->get().Task;
-		CurrentTask = InTask;
-		UpdateNextTime(CurrentTask);
+		if (std::optional<std::reference_wrapper<SubProcess>> IdlingSubprocess = GetIdlingSubprocess())
+		{
+			std::shared_ptr<Tasks::TaskBase>& CurrentTask = IdlingSubprocess->get().Task;
+			CurrentTask = InTask;
+			UpdateNextTime(CurrentTask);
+		}
+		else
+		{
+			if (m_MaxQueueLength == NO_LIMITS || (m_TaskQueue.size() < m_MaxQueueLength))
+			{
+				m_TaskQueue.push_back(InTask);
+			}
+			else
+			{
+				ReportFailure(InTask);
+			}
+		}
 	}
-	else // if all processes are busy...
+	else
 	{
-		// If the queue isn't full - add the task to it
-		if (m_MaxQueueLength == NO_LIMITS || (m_TaskQueue.size() < m_MaxQueueLength))
-		{
-			m_TaskQueue.push_back(InTask);
-		}
-		else // otherwise report the failure
-		{
-			++m_StatisticsData.FailureRate;
-
-			++m_StatisticsData.PacketsTotal;
-			m_SpecificStatisticsData.TotalTaskLifetime += m_CurrentTime - InTask->GetInitialTime();
-		}
+		ReportFailure(InTask);
 	}
 }
 
@@ -166,6 +168,16 @@ bool Model::Nodes::NodeProcessor::IsAvailable() const
 	return (m_MaxQueueLength == NO_LIMITS) || (m_TaskQueue.size() < m_MaxQueueLength) || (!m_MaxQueueLength && GetFreeSlotsNum());
 }
 
+bool Model::Nodes::NodeProcessor::CanTaskEnter(const std::shared_ptr<Model::Tasks::TaskBase>& IncomingTask)
+{
+	if (m_CanTaskEnterFunction)
+	{
+		return m_CanTaskEnterFunction(*this, IncomingTask);
+	}
+
+	return true;
+}
+
 void Model::Nodes::NodeProcessor::ExecutePostTickFunction()
 {
 	if (m_PostTickFunction)
@@ -179,6 +191,11 @@ void Model::Nodes::NodeProcessor::SetPostTickFunction(std::function<bool(Model::
 	m_PostTickFunction = std::move(InFunction);
 }
 
+void Model::Nodes::NodeProcessor::SetInActionCondition(std::function<bool(Nodes::NodeProcessor&, const std::shared_ptr<Tasks::TaskBase>&)> InFunction)
+{
+	m_CanTaskEnterFunction = InFunction;
+}
+
 void Model::Nodes::NodeProcessor::SetGetNextTaskFunction(std::function<std::shared_ptr<Tasks::TaskBase>&(std::deque<std::shared_ptr<Tasks::TaskBase>>&)> GetNextTask)
 {
 	m_GetNextTask = std::move(GetNextTask);
@@ -190,6 +207,18 @@ std::shared_ptr<Model::Tasks::TaskBase> Model::Nodes::NodeProcessor::PopFrontTas
 	m_TaskQueue.pop_front();
 
 	return Task;
+}
+
+int Model::Nodes::NodeProcessor::GetSpecificTaskNum(const std::function<bool(const std::shared_ptr<Tasks::TaskBase>&)>& Pred) const
+{
+	if (Pred)
+	{
+		const int NumInQueue = std::count_if(m_TaskQueue.cbegin(), m_TaskQueue.cend(), [&Pred](const std::shared_ptr<Tasks::TaskBase>& InTask) {return Pred(InTask); });
+		const int NumInExecution = std::count_if(m_Subprocesses.cbegin(), m_Subprocesses.cend(), [&Pred](const SubProcess& InProcess) {return Pred(InProcess.Task); });
+		return NumInQueue + NumInExecution;
+	}
+
+	return (m_Subprocesses.size() - GetFreeSlotsNum()) + m_TaskQueue.size();
 }
 
 void Model::Nodes::NodeProcessor::UpdateNextTime(const std::shared_ptr<Tasks::TaskBase>& ExecutedTask)
@@ -208,6 +237,13 @@ void Model::Nodes::NodeProcessor::UpdateNextTime(const std::shared_ptr<Tasks::Ta
 		m_NextTime = GetNextTime();
 		m_bIsWorking = true;
 	}
+}
+
+void Model::Nodes::NodeProcessor::ReportFailure(const std::shared_ptr<Tasks::TaskBase>& FailedTask)
+{
+	NodeBase::ReportFailure(FailedTask);
+
+	m_SpecificStatisticsData.TotalTaskLifetime += m_CurrentTime - FailedTask->GetInitialTime();
 }
 
 std::shared_ptr<Model::Tasks::TaskBase> Model::Nodes::NodeProcessor::GetNextTask()

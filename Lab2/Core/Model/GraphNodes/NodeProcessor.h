@@ -41,16 +41,22 @@ namespace Model
 
 			bool IsAvailable() const override;
 
+			bool CanTaskEnter(const std::shared_ptr<Tasks::TaskBase>& IncomingTask);
+
 			void ExecutePostTickFunction() override;
 
-			void SetPostTickFunction(std::function<bool(Nodes::NodeProcessor& Node)> InFunction);
+			void SetPostTickFunction(std::function<bool(Nodes::NodeProcessor&)> InFunction);
+			void SetInActionCondition(std::function<bool(Nodes::NodeProcessor&, const std::shared_ptr<Tasks::TaskBase>&)> InFunction);
 
 			void SetGetNextTaskFunction(std::function<std::shared_ptr<Tasks::TaskBase>&(std::deque<std::shared_ptr<Tasks::TaskBase>>&)> GetNextTask);
 
 			std::shared_ptr<Tasks::TaskBase> PopFrontTask();
 
+			int GetSpecificTaskNum(const std::function<bool(const std::shared_ptr<Tasks::TaskBase>&)>& Pred) const;
+
 		protected:
 			void UpdateNextTime(const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) override;
+			void ReportFailure(const std::shared_ptr<Tasks::TaskBase>& FailedTask) override;
 
 		private:
 			struct SubProcess
@@ -69,7 +75,9 @@ namespace Model
 			std::deque<std::shared_ptr<Tasks::TaskBase>> m_TaskQueue;
 			std::vector<SubProcess> m_Subprocesses;
 
-			std::function<bool(Nodes::NodeProcessor& Node)> m_PostTickFunction;
+			std::function<bool(Nodes::NodeProcessor&, const std::shared_ptr<Tasks::TaskBase>&)> m_CanTaskEnterFunction;
+
+			std::function<bool(Nodes::NodeProcessor&)> m_PostTickFunction;
 			std::function<std::shared_ptr<Tasks::TaskBase>&(std::deque<std::shared_ptr<Tasks::TaskBase>>&)> m_GetNextTask;
 
 			NodeProcessorSpecificStatistics m_SpecificStatisticsData;

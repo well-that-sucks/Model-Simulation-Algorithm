@@ -160,3 +160,9 @@ void Model::Nodes::NodeBase::UpdateNextTime(const std::shared_ptr<Tasks::TaskBas
 	m_NextTime = m_CurrentTime + m_DelayFunction(ExecutedTask);
 	m_bIsWorking = true;
 }
+
+void Model::Nodes::NodeBase::ReportFailure(const std::shared_ptr<Tasks::TaskBase>& FailedTask)
+{
+	++m_StatisticsData.FailureRate;
+	++m_StatisticsData.PacketsTotal;
+}

@@ -74,6 +74,7 @@ namespace Model
 
 		protected:
 			virtual void UpdateNextTime(const std::shared_ptr<Tasks::TaskBase>& ExecutedTask);
+			virtual void ReportFailure(const std::shared_ptr<Tasks::TaskBase>& FailedTask);
 
 		protected:
 			std::string m_Name;

@@ -275,3 +275,113 @@ void Model::ModelExamples::RunModelHospital(double SimulationTime)
 	Model Model5({ Generator, MultiprocessorDoctor, MultiprocessorCaretaker, TransitionToLab, TransitionToAdmissionDeparture, Registry, MultiprocessorLabworker });
 	Model5.Simulate(SimulationTime);
 }
+
+void Model::ModelExamples::RunModelCoursework(double SimulationTime)
+{
+	Nodes::NodeGenerator Generator1("CREATOR_1");
+	Nodes::NodeGenerator Generator2("CREATOR_2");
+
+	std::vector<std::pair<Tasks::TaskBase, double>> TaskProbabilities1 =
+	{ {Tasks::TaskBase("MessageType1"), 1} };
+
+	std::vector<std::pair<Tasks::TaskBase, double>> TaskProbabilities2 =
+	{ {Tasks::TaskBase("MessageType2"), 1} };
+
+	Generator1.SetDelayFunction([](const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) { return Random::Distributions::DistributionUniform::GenerateByExpectedValue(8, 22); });
+	Generator1.SetTaskDistribution(TaskProbabilities1);
+
+	Generator2.SetDelayFunction([](const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) { return Random::Distributions::DistributionUniform::GenerateByExpectedValue(8, 22); });
+	Generator2.SetTaskDistribution(TaskProbabilities2);
+
+	Nodes::NodeProcessor Processor("PROC_BUFFER", NO_LIMITS);
+	Processor.SetDelayFunction([](const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) { return 7; });
+
+	Nodes::NodeProcessor OutRoute1("OUTPUT_ROUTE_1", 2);
+	Nodes::NodeProcessor OutRoute2("OUTPUT_ROUTE_2", 2);
+
+	OutRoute1.SetDelayFunction([](const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) { return Random::Distributions::DistributionUniform::GenerateByExpectedValue(10, 20); });
+	OutRoute2.SetDelayFunction([](const std::shared_ptr<Tasks::TaskBase>& ExecutedTask) { return Random::Distributions::DistributionUniform::GenerateByExpectedValue(10, 20); });
+
+	std::map<std::string, std::string> TaskToNodeTypesMapping = { {"MessageType1", "OUTPUT_ROUTE_1"}, {"MessageType2", "OUTPUT_ROUTE_2"} };
+	std::function<std::optional<std::reference_wrapper<Nodes::NodeBase>>
+		(std::vector<std::reference_wrapper<Nodes::NodeBase>>& NodeCandidates, const std::shared_ptr<Tasks::TaskBase>& ExecutedTask)> GetNextNodeFunctionProcesspr =
+		[&TaskToNodeTypesMapping](std::vector<std::reference_wrapper<Nodes::NodeBase>>& NodeCandidates, const std::shared_ptr<Tasks::TaskBase>& ExecutedTask)->std::optional<std::reference_wrapper<Nodes::NodeBase>>
+		{
+			if (!ExecutedTask)
+			{
+				return std::nullopt;
+			}
+
+			std::map<std::string, std::string>::iterator TargetElement = TaskToNodeTypesMapping.find(ExecutedTask->GetType());
+
+			if (TargetElement != TaskToNodeTypesMapping.end())
+			{
+				std::vector<std::reference_wrapper<Nodes::NodeBase>>::iterator NextElement =
+					std::find_if(NodeCandidates.begin(), NodeCandidates.end(),
+						[&TargetName = TargetElement->second](const Nodes::NodeBase& Node) { return Node.GetName() == TargetName; });
+
+				if (NextElement != NodeCandidates.end() && NextElement->get().IsAvailable())
+				{
+					return *NextElement;
+				}
+			}
+
+			return std::nullopt;
+		};
+
+	Processor.SetGetNextNodeFunction(GetNextNodeFunctionProcesspr);
+
+	std::function<bool(Nodes::NodeProcessor& Node, const std::shared_ptr<Tasks::TaskBase>&)> InActionConditionFunction =
+		[&OutRoute1, &OutRoute2](Nodes::NodeProcessor& UpdatedNode, const std::shared_ptr<Tasks::TaskBase>& InTask)
+		{
+		const int TaskTypeNum = UpdatedNode.GetSpecificTaskNum(
+			[&InTask](const std::shared_ptr<Tasks::TaskBase>& Task) { 
+				if (Task && InTask)
+				{
+					return Task->GetType() == InTask->GetType();
+				}
+			});
+			
+			if (InTask->GetType() == "MessageType1")
+			{
+				const int RouteTypeNum = OutRoute1.GetSpecificTaskNum(
+					[&InTask](const std::shared_ptr<Tasks::TaskBase>& Task) {
+						if (Task && InTask)
+						{
+							return Task->GetType() == InTask->GetType();
+						}
+					});
+
+				if (TaskTypeNum + RouteTypeNum >= 3)
+				{
+					return false;
+				}
+			}
+
+			if (InTask->GetType() == "MessageType2")
+			{
+				const int RouteTypeNum = OutRoute2.GetSpecificTaskNum(
+					[&InTask](const std::shared_ptr<Tasks::TaskBase>& Task) {
+						if (Task && InTask)
+						{
+							return Task->GetType() == InTask->GetType();
+						}
+					});
+
+				if (TaskTypeNum + RouteTypeNum >= 3)
+				{
+					return false;
+				}
+			}
+
+			return true;
+		};
+
+	Processor.SetInActionCondition(InActionConditionFunction);
+
+	Generator1.AddNextNode(Processor.AddNextNode(OutRoute1).AddNextNode(OutRoute2));
+	Generator2.AddNextNode(Processor.AddNextNode(OutRoute1).AddNextNode(OutRoute2));
+
+	Model Model6({ Generator1, Generator2, Processor, OutRoute1, OutRoute2 });
+	Model6.Simulate(SimulationTime);
+}
